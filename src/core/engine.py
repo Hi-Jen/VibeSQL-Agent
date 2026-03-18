@@ -1,12 +1,17 @@
 import re
+import os
 from typing import Dict, Any, List, Optional
 from sqlalchemy import inspect
+from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from src.core.guardrails import SQLGuardrail
 from src.db.connection import DatabaseConnection
 from src.core.dictionary import BaseDictionary, YamlDictionary
+
+# 환경 변수 로드
+load_dotenv()
 
 class VibeSQLEngine:
     """
@@ -128,7 +133,11 @@ class VibeSQLEngine:
                 
             except Exception as e:
                 error_feedback = f"LLM 호출/파싱 에러: {str(e)}"
+                wait_time = 2 ** (retry_count + 1)
                 print(f"LLM Error (Attempt {retry_count + 1}): {error_feedback}")
+                print(f"시스템 안정화를 위해 {wait_time}초 대기 후 재시도합니다...")
+                import time
+                time.sleep(wait_time)
                 retry_count += 1
                 continue
             
