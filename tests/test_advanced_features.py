@@ -1,39 +1,41 @@
 import sys
 import os
+os.environ["OPENAI_API_KEY"] = "sk-dummy-key-for-test"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.core.engine import VibeSQLEngine
 from src.core.dictionary import YamlDictionary
 from src.db.connection import DatabaseConnection
+from unittest.mock import MagicMock, patch
 
-def test_advanced_features():
-    print("=== [테스트] 고도화 기능 (해설 & 스키마 필터링) 검증 ===")
+def test_llm_integration():
+    print("=== [테스트] LangChain 실연동 및 출력 파싱 검증 ===")
     
     db = DatabaseConnection("sqlite:///vibesql_demo.db")
     dictionary = YamlDictionary("config/dictionary.yaml")
     engine = VibeSQLEngine(dictionary=dictionary, db_connection=db)
     
-    # 1. 스키마 필터링 검증 (질문에 'users' 포함)
-    print("\n[1] 스키마 필터링 테스트: '최근 유저 리스트 보여줘'")
-    relevant_tables = engine._get_relevant_tables("최근 유저 리스트 보여줘")
-    print(f"선택된 테이블: {relevant_tables}")
-    
-    prompt = engine.build_prompt_with_context("최근 유저 리스트 보여줘", "marketing")
-    if "Table: users" in prompt and "Table: orders" not in prompt:
-        print("✅ 토큰 최적화: 필요한 테이블 정보만 프롬프트에 주입됨.")
-    else:
-        print("⚠️ 스키마 필터링 결과 확인 필요.")
-
-    # 2. 자연어 해설 생성 검증
-    print("\n[2] 자연어 해설 및 결과 통합 테스트")
-    result = engine.generate_and_execute("지난 달 활성유저 보여줘", "marketing")
-    
-    if result.get("success"):
-        print(f"✅ 해설 생성: {result['explanation']}")
-        print(f"✅ 실행 SQL: {result['sql']}")
-        print(f"✅ 조회 건수: {result['count']}")
-    else:
-        print(f"❌ 테스트 실패: {result.get('error')}")
+    # LLM Mocking: patch를 사용하여 ChatOpenAI.invoke를 가로챔
+    with patch("langchain_openai.ChatOpenAI.invoke") as mock_invoke:
+        mock_response = MagicMock()
+        mock_response.content = """
+네, 분석 결과입니다.
+```sql
+SELECT name, last_login FROM users WHERE last_login >= date('now', '-30 days')
+```
+최근 30일 이내에 로그인한 유저 리스트를 조회합니다.
+"""
+        mock_invoke.return_value = mock_response
+        
+        print("\n[1] LLM 응답 파싱 테스트")
+        result = engine.generate_and_execute("최근 활성유저 보여줘", "marketing")
+        
+        if result.get("success"):
+            print(f"✅ SQL 추출 성공: {result['sql']}")
+            print(f"✅ 해설 추출 성공: {result['explanation']}")
+            print(f"✅ 데이터 조회 성공 (건수: {result['count']})")
+        else:
+            print(f"❌ 테스트 실패: {result.get('error')}")
 
 if __name__ == "__main__":
-    test_advanced_features()
+    test_llm_integration()

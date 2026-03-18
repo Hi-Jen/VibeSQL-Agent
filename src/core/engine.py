@@ -1,5 +1,9 @@
+import re
 from typing import Dict, Any, List, Optional
 from sqlalchemy import inspect
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 from src.core.guardrails import SQLGuardrail
 from src.db.connection import DatabaseConnection
 from src.core.dictionary import BaseDictionary, YamlDictionary
@@ -13,11 +17,34 @@ class VibeSQLEngine:
     def __init__(self, 
                  dictionary: BaseDictionary, 
                  db_connection: DatabaseConnection,
+                 model_name: str = "gpt-4-turbo",
                  max_retries: int = 3):
         self.dictionary = dictionary
         self.db = db_connection
         self.guardrail = SQLGuardrail()
         self.max_retries = max_retries
+        
+        # LLM 초기화 (API Key는 환경변수에서 로드됨)
+        self.llm = ChatOpenAI(model=model_name, temperature=0)
+
+    def _parse_llm_output(self, llm_output: str) -> Dict[str, str]:
+        """
+        LLM의 응답 텍스트에서 SQL과 해설을 추출함.
+        마크다운 코드 블록이나 특정 태그를 파싱.
+        """
+        sql_match = re.search(r"```sql\s*(.*?)\s*```", llm_output, re.DOTALL | re.IGNORECASE)
+        if not sql_match:
+            # sql 블록이 없는 경우 전체 텍스트에서 첫 번째 SELECT/WITH 찾기 시도
+            sql_match = re.search(r"(SELECT|WITH|UPDATE|DELETE|INSERT|CREATE|DROP|ALTER).*?;?", llm_output, re.DOTALL | re.IGNORECASE)
+        
+        sql = sql_match.group(1).strip() if sql_match else ""
+        
+        # 해설 추출 (SQL 블록 제외한 나머지 텍스트)
+        explanation = llm_output.replace(sql_match.group(0) if sql_match else "", "").strip()
+        # 불필요한 마크다운 기호 제거
+        explanation = re.sub(r"```(sql)?", "", explanation).strip()
+        
+        return {"sql": sql, "explanation": explanation}
 
     def _get_relevant_tables(self, natural_language: str) -> Optional[List[str]]:
         """
@@ -28,9 +55,11 @@ class VibeSQLEngine:
         
         relevant = []
         for table in all_tables:
+            # 단순 키워드 매칭 (임베딩 기반 RAG 도입 전 단계)
             if table.lower() in natural_language.lower():
                 relevant.append(table)
         
+        # TODO: 사용자의 자연어 질문을 보고 필요한 테이블 목록을 LLM이 먼저 고르게 하는 로직 추가 가능
         return relevant if relevant else None
 
     def build_prompt_with_context(self, 
@@ -40,10 +69,8 @@ class VibeSQLEngine:
         """
         부서별 용어 사전 컨텍스트와 동적으로 선택된 DB 스키마 정보를 LLM 프롬프트에 주입함.
         """
-        # 1. 연관 테이블 선별 (Token Optimization)
         relevant_tables = self._get_relevant_tables(natural_language)
         schema_context = self.db.get_schema_info(relevant_tables)
-        
         dictionary_context = self.dictionary.get_context_string(department)
         
         prompt = f"""
@@ -57,10 +84,11 @@ class VibeSQLEngine:
 {dictionary_context}
 
 [3] 지시사항:
-1. 반드시 위의 스키마 정보에 있는 테이블과 컬럼만 사용할 것.
+1. 반드시 위의 스키마 정보에 있는 테이블과 컬럼만 사용할 것. (존재하지 않는 컬럼 사용 금지)
 2. 용어 사전에 정의된 조건이나 계산식을 쿼리에 정확히 반영할 것.
-3. 복잡한 JOIN, GROUP BY, HAVING 절이 필요하다면 논리적으로 구성할 것.
-4. 결과는 추가 설명 없이 오직 SQL 쿼리 문자열만 반환할 것. (해설은 내부적으로 처리됨)
+3. 결과물 형식:
+   - SQL 쿼리는 반드시 ```sql ... ``` 블록 안에 작성할 것.
+   - 쿼리에 대한 자연어 해설은 SQL 블록 바로 뒤에 한 문장으로 작성할 것.
 
 질문: {natural_language}
 """
@@ -70,7 +98,6 @@ class VibeSQLEngine:
 이전 시도에서 다음 에러가 발생했습니다: "{error_feedback}"
 위 에러를 참고하여 SQL 문법이나 컬럼명을 다시 확인하고 수정한 SQL을 출력하라.
 """
-        prompt += "\nSQL:"
         return prompt
 
     def generate_and_execute(self, natural_language: str, department: str = "marketing") -> Dict[str, Any]:
@@ -84,22 +111,27 @@ class VibeSQLEngine:
 
         while retry_count < self.max_retries:
             # 1. 프롬프트 생성 (에러 피드백 포함)
-            prompt = self.build_prompt_with_context(natural_language, department, error_feedback)
+            prompt_text = self.build_prompt_with_context(natural_language, department, error_feedback)
             
-            # 2. SQL 및 해설 생성 (실제 구현 시 LangChain LLM 호출 및 파싱)
-            if "활성유저" in natural_language:
-                if retry_count == 0:
-                    generated_sql = "SELECT user_name, last_login_time FROM users WHERE last_login >= date('now', '-30 days')"
-                    explanation = "최근 30일 이내에 로그인한 유저의 이름과 정보를 조회합니다."
-                else:
-                    generated_sql = "SELECT name, last_login FROM users WHERE last_login >= date('now', '-30 days')"
-                    explanation = "최근 30일 이내에 로그인한 유저 리스트를 조회합니다."
-            elif "지워" in natural_language or "삭제" in natural_language:
-                generated_sql = "DELETE FROM users"
-                explanation = "데이터를 삭제합니다."
-            else:
-                generated_sql = "SELECT * FROM users"
-                explanation = "전체 유저 정보를 조회합니다."
+            # 2. SQL 및 해설 생성 (LangChain LLM 호출)
+            try:
+                # StrOutputParser를 사용하여 문자열 결과 획득
+                response = self.llm.invoke(prompt_text)
+                llm_output = response.content
+                
+                # 출력 파싱 (SQL 블록 및 해설 분리)
+                parsed = self._parse_llm_output(llm_output)
+                generated_sql = parsed["sql"]
+                explanation = parsed["explanation"]
+                
+                if not generated_sql:
+                    raise ValueError("LLM이 유효한 SQL을 생성하지 못했습니다.")
+                
+            except Exception as e:
+                error_feedback = f"LLM 호출/파싱 에러: {str(e)}"
+                print(f"LLM Error (Attempt {retry_count + 1}): {error_feedback}")
+                retry_count += 1
+                continue
             
             last_sql = generated_sql
 
