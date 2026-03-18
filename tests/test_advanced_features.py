@@ -1,6 +1,6 @@
 import sys
 import os
-os.environ["OPENAI_API_KEY"] = "sk-dummy-key-for-test"
+os.environ["GOOGLE_API_KEY"] = "AIzaSy-dummy-key"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.core.engine import VibeSQLEngine
@@ -9,14 +9,14 @@ from src.db.connection import DatabaseConnection
 from unittest.mock import MagicMock, patch
 
 def test_llm_integration():
-    print("=== [테스트] LangChain 실연동 및 출력 파싱 검증 ===")
+    print("=== [테스트] Google Gemini 실연동 및 출력 파싱 검증 ===")
     
     db = DatabaseConnection("sqlite:///vibesql_demo.db")
     dictionary = YamlDictionary("config/dictionary.yaml")
     engine = VibeSQLEngine(dictionary=dictionary, db_connection=db)
     
-    # LLM Mocking: patch를 사용하여 ChatOpenAI.invoke를 가로챔
-    with patch("langchain_openai.ChatOpenAI.invoke") as mock_invoke:
+    # LLM Mocking: patch를 사용하여 ChatGoogleGenerativeAI.invoke를 가로챔
+    with patch("langchain_google_genai.ChatGoogleGenerativeAI.invoke") as mock_invoke:
         mock_response = MagicMock()
         mock_response.content = """
 네, 분석 결과입니다.

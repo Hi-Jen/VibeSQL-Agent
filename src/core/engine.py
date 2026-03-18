@@ -1,7 +1,7 @@
 import re
 from typing import Dict, Any, List, Optional
 from sqlalchemy import inspect
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from src.core.guardrails import SQLGuardrail
@@ -11,21 +11,20 @@ from src.core.dictionary import BaseDictionary, YamlDictionary
 class VibeSQLEngine:
     """
     VibeSQL-Agent의 핵심 엔진.
-    자연어 입력을 받아 용어 사전을 참조하고, 안전한 SQL을 생성 및 검증함.
-    Self-Correction 루프를 통해 에러 발생 시 자동으로 수정을 시도함.
+    Google Gemini 모델을 사용하여 자연어 질문을 안전한 SQL로 변환함.
     """
     def __init__(self, 
                  dictionary: BaseDictionary, 
                  db_connection: DatabaseConnection,
-                 model_name: str = "gpt-4-turbo",
+                 model_name: str = "gemini-1.5-flash",
                  max_retries: int = 3):
         self.dictionary = dictionary
         self.db = db_connection
         self.guardrail = SQLGuardrail()
         self.max_retries = max_retries
         
-        # LLM 초기화 (API Key는 환경변수에서 로드됨)
-        self.llm = ChatOpenAI(model=model_name, temperature=0)
+        # LLM 초기화 (API Key는 환경변수 GOOGLE_API_KEY에서 로드됨)
+        self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=0)
 
     def _parse_llm_output(self, llm_output: str) -> Dict[str, str]:
         """

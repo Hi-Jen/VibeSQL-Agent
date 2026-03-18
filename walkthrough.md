@@ -24,6 +24,7 @@
 - **검증 내용**: LLM 호출(Mock) -> SQL/해설 파싱 -> 가드레일 통과 -> DB 실행 및 결과 반환.
 - **결과**: 모든 단계에서 데이터 무결성과 로직의 정상 작동을 확인했습니다.
 
-## 📦 배포 준비 완료
+## 📦 배포 및 모델 최적화 완료
+- **LLM Engine**: OpenAI에서 **Google Gemini (gemini-1.5-flash)**로 엔진을 성공적으로 교체했습니다.
 - **GitHub**: [Hi-Jen/VibeSQL-Agent](https://github.com/Hi-Jen/VibeSQL-Agent) 최신 코드 푸시 완료.
-- **환경 설정**: `.env.example` 및 `requirements.txt` 정비 완료.
+- **환경 설정**: `GOOGLE_API_KEY`를 사용하는 `.env` 및 `requirements.txt` 정비 완료.

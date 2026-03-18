@@ -12,6 +12,12 @@
 - [x] **Self-Correction (자동 수정) 루프** 구현
 - [x] 에러 피드백 기반 리트라이 로직 검증
 
+## 5. 모델 교체 (OpenAI -> Google Gemini) [x]
+- [x] **의존성 업데이트**: `langchain-google-genai` 추가
+- [x] **엔진 코드 수정**: `ChatGoogleGenerativeAI` 적용
+- [x] **환경 변수 설정**: `GOOGLE_API_KEY` 연동 및 `.env` 파일 업데이트
+- [x] **GitHub 동기화**: 변경 사항 업로드
+
 ## 3. 지능형 최적화 & UX [x]
 - [x] **동적 스키마 로딩 (Token Optimization)**: 질문 연관 테이블 선별
 - [x] **쿼리 자연어 해설 (Explanation)** 기능 추가
