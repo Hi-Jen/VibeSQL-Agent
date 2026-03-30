@@ -1,39 +1,28 @@
-# VibeSQL-Agent Semantic Dictionary
-# 부서별 용어 정의 및 메타데이터 관리
+# VibeSQL-Agent 도메인 용어 사전 (Semantic Layer)
+# 사용자의 자연어 표현을 SQL 컬럼/테이블로 매핑하는 데 사용됩니다.
 
-departments:
-  marketing:
-    terms:
-      활성유저:
-        description: "최근 30일 이내에 로그인한 유저"
-        sql_condition: "last_login >= CURRENT_DATE - INTERVAL '30 days'"
-      충성고객:
-        description: "총 구매 금액이 100만원 이상인 유저"
-        sql_condition: "total_spent >= 1000000"
-    schemas:
-      - users
-      - orders
-      - marketing_campaigns
+domains:
+  인사팀:
+    synonyms:
+      직원: "employees"
+      사원: "employees"
+      부서: "departments"
+      이름: "name"
+      급여: "salary"
+      연봉: "salary"
+      월급: "salary"
+      입사일: "hire_date"
+      부서명: "department_name"
+      부서이름: "department_name"
+      직급: "position"
+      이메일: "email"
 
-  finance:
-    terms:
-      매출액:
-        description: "환불을 제외한 순수 결제 금액"
-        sql_calculation: "SUM(price - refund_amount)"
-      영업이익:
-        description: "매출액에서 매출원가를 뺀 금액"
-        sql_calculation: "SUM(price - refund_amount - cost)"
-    schemas:
-      - transactions
-      - products
-      - settlements
-
-global_rules:
-  default_limit: 1000
-  forbidden_keywords:
-    - DROP
-    - DELETE
-    - UPDATE
-    - TRUNCATE
-    - ALTER
-    - INSERT
+  공통:
+    synonyms:
+      전체: "*"
+      모두: "*"
+      평균: "AVG"
+      합계: "SUM"
+      최대: "MAX"
+      최소: "MIN"
+      개수: "COUNT"

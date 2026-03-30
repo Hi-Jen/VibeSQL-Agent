@@ -1,54 +1,93 @@
-# VibeSQL-Agent 🚀
+# ⚡ VibeSQL-Agent
 
-**VibeSQL-Agent**는 현업 실무자가 자연어(Vibe)로 질문하면 사내 정의된 '용어 사전(Semantic Dictionary)'을 참조하여 정확하고 안전한 SQL을 실행하고 결과를 제공하는 지능형 데이터 분석 에이전트입니다.
+**VibeSQL-Agent**는 자연어(한국어) 질문을 안전한 SQL로 변환하고 실행하는 사내망 특화 LLM 에이전트입니다. LLM의 환각(Hallucination)과 데이터 파괴(DELETE, DROP 등)를 방지하는 **'안전 가드레일'**과 에러 발생 시 스스로 쿼리를 수정하는 **'Self-Correction'** 루프를 핵심 기능으로 제공합니다.
 
-## 🌟 주요 특징
+---
 
-- **Semantic Layer**: 부서별 전용 용어 사전을 통해 비즈니스 용어를 SQL 조건으로 자동 매핑.
-- **SQLD Brain**: DB 스키마 자동 추출 및 LLM 프롬프트 주입으로 고도의 쿼리 생성.
-- **Self-Correction**: SQL 실행 에러 발생 시 스스로 코드를 수정하는 자가 치유 루프.
-- **Token Optimization**: 대규모 스키마 대응을 위한 동적 테이블 테이블 선별 로직.
-- **Safety Guardrails**: DML/DDL 차단, Cartesian Product 감지, LIMIT 자동 주입.
-- **Async Slack Interaction**: FastAPI와 BackgroundTasks를 이용한 비동기 슬랙 봇 지원.
-- **Hallucination Explanation**: 쿼리 생성 의도를 자연어로 해설하여 신뢰도 확보.
+## 🚀 주요 기능
 
-## 🏗️ 프로젝트 구조
+### 1. 🛡️ 안전 가드레일 (Safe Guardrails)
+- **위험 쿼리 차단**: `DELETE`, `DROP`, `UPDATE`, `INSERT`, `ALTER`, `TRUNCATE` 등 데이터 변조/삭제 쿼리를 `sqlparse` 토큰 분석을 통해 사전에 완벽히 차단합니다.
+- **읽기 전용 강제**: 오직 `SELECT`와 `WITH`(CTE) 구문만 실행할 수 있습니다.
+- **대량 데이터 방지**: 쿼리에 `LIMIT` 절이 없을 경우 성능 보호를 위해 자동으로 `LIMIT 1000`을 추가합니다.
+
+### 2. 🔄 자기 교정 루프 (Self-Correction Loop)
+- **자동 에러 수정**: SQL 실행 중 구문 에러가 발생하면, 에러 메시지를 LLM에 피드백하여 최대 3회까지 스스로 쿼리를 수정하고 재시도합니다.
+
+### 3. 📖 도메인 사전 (Semantic Layer)
+- **한국어 용어 매핑**: `config/dictionary.yaml`을 통해 "직원", "연봉", "부서명" 등 현업에서 사용하는 한국어 용어를 실제 DB 테이블 및 컬럼명과 정확하게 연결합니다.
+
+### 4. 📊 스키마 자동 추출
+- **컨텍스트 주입**: DB의 모든 테이블 구조(컬럼명, 데이터 타입, PK/FK 관계)를 자동으로 추출하여 LLM 프롬프트에 제공함으로써 변환 정확도를 극대화합니다.
+
+---
+
+## 🛠️ 기술 스택
+
+- **Core**: Python 3.12+
+- **LLM Framework**: LangChain, Google Gemini 1.5 Flash
+- **Database**: SQLite (Demo), SQLAlchemy
+- **SQL Parser**: sqlparse
+- **UI**: CLI (tabulate 기반 결과 출력)
+
+---
+
+## 📂 디렉토리 구조
 
 ```text
 VibeSQL-Agent/
-├── config/              # 설정 파일 (dictionary.yaml 등)
+├── config/
+│   └── dictionary.yaml      # 도메인 용어 사전 (Semantic Layer)
 ├── src/
-│   ├── api/            # 외부 인터페이스 (Slack API 등)
-│   ├── core/           # 핵심 엔진 (Engine, Guardrails, Dictionary)
-│   ├── db/             # 데이터베이스 연결 및 관리
-│   └── utils/          # 유틸리티 (데이터 내보내기 등)
-├── tests/              # TDD를 위한 테스트 케이스
-├── requirements.txt    # 의존성 패키지 목록
-└── README.md
+│   ├── core/
+│   │   ├── engine.py        # LLM 코어 및 Self-Correction 루프
+│   │   ├── guardrails.py    # SQL 안전 검증 로직
+│   │   └── dictionary.py    # YAML 사전 파싱
+│   ├── db/
+│   │   └── connection.py    # DB 연동 및 스키마 추출
+│   └── utils/
+│       └── export.py        # CSV 내보내기 유틸리티
+├── tests/                   # 단위 테스트 (Pytest)
+├── .env                     # GOOGLE_API_KEY 설정
+├── main.py                  # CLI 진입점
+└── requirements.txt         # 프로젝트 의존성
 ```
 
-## 🚀 시작하기
+---
+
+## ⚙️ 설치 및 실행
 
 ### 1. 환경 설정
+`.env` 파일을 생성하고 Google API Key를 입력합니다.
+```env
+GOOGLE_API_KEY=your_google_api_key_here
+```
+
+### 2. 의존성 설치
 ```bash
+python -m venv venv
+.\venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. 테스트 실행
+### 3. 실행
 ```bash
-# 가드레일 테스트
-$env:PYTHONPATH = "."; python tests/test_guardrails.py
-
-# 고도화 기능 테스트 (해설, 셀프 코렉션 등)
-$env:PYTHONPATH = "."; python tests/test_advanced_features.py
+python main.py
 ```
 
-## 🛠️ 기술 스택
-- **Language**: Python 3.11+
-- **LLM Framework**: LangChain
-- **Analysis**: sqlparse (AST 기반 안전 검증)
-- **Database**: SQLAlchemy (Read-only)
-- **Interface**: Slack SDK, FastAPI
+---
 
-## 📝 라이선스
-MIT License
+## ✅ 테스트 결과
+
+현재 26개의 단위 테스트가 작성되어 있으며, 가드레일 및 DB 연동의 안정성을 보장합니다.
+```bash
+python -m pytest tests/
+# 결과: 26 passed
+```
+
+---
+
+## 📝 향후 계획 (Phase 2)
+- 결과 데이터 CSV 다운로드 기능 활성화
+- 부서별 맞춤형 사전 강화
+- Streamlit 기반 웹 대시보드 구현

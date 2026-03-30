@@ -1,29 +1,18 @@
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
+# Environments
+.env
+.venv
 env/
 venv/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-.pytest_cache/
+ENV/
+env.bak/
+venv.bak/
 
-# Databases
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# SQLite
 *.db
-*.sqlite
-
-# Exports
-exports/
-
-# IDE
-.vscode/
-.idea/
-.gemini/
+*.sqlite3

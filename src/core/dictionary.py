@@ -1,53 +1,77 @@
-from abc import ABC, abstractmethod
+"""
+dictionary.py - YAML 도메인 용어 사전 파싱 모듈
+
+config/dictionary.yaml을 읽어 LLM 프롬프트에 주입할
+도메인 용어 매핑 컨텍스트를 문자열로 반환합니다.
+"""
+
+import os
+from pathlib import Path
+from typing import Any
+
 import yaml
-from typing import Dict, Any, List
 
-class BaseDictionary(ABC):
+
+# 프로젝트 루트 기준 사전 파일 경로
+_DEFAULT_DICT_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "config" / "dictionary.yaml"
+)
+
+
+def load_dictionary(path: str | Path | None = None) -> dict[str, Any]:
     """
-    용어 사전 인터페이스. 나중에 DB 연동 등으로 확장 가능하도록 추상 클래스로 정의.
+    YAML 사전 파일을 파싱하여 딕셔너리로 반환합니다.
+
+    Args:
+        path: 사전 파일 경로. None이면 기본 경로 사용.
+
+    Returns:
+        파싱된 도메인 사전 딕셔너리
+
+    Raises:
+        FileNotFoundError: 파일이 존재하지 않을 때
     """
-    @abstractmethod
-    def get_terms(self, department: str) -> Dict[str, Any]:
-        """
-        특정 부서의 용어 정의를 리턴함.
-        """
-        pass
+    dict_path = Path(path) if path else _DEFAULT_DICT_PATH
 
-    @abstractmethod
-    def get_context_string(self, department: str) -> str:
-        """
-        LLM 프롬프트에 주입할 용어 정보 문자열을 리턴함.
-        """
-        pass
+    if not dict_path.exists():
+        raise FileNotFoundError(
+            f"도메인 사전 파일을 찾을 수 없습니다: {dict_path}"
+        )
 
-class YamlDictionary(BaseDictionary):
+    with open(dict_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    return data or {}
+
+
+def get_dictionary_context(path: str | Path | None = None) -> str:
     """
-    YAML 파일을 기반으로 하는 용어 사전 구현체.
+    도메인 사전을 LLM 프롬프트에 주입할 수 있는 문자열로 변환합니다.
+
+    Returns:
+        도메인 용어 매핑을 설명하는 텍스트 블록
+        예:
+          [인사팀 도메인 용어]
+          - "직원" → employees 테이블
+          - "급여" → salary 컬럼
     """
-    def __init__(self, file_path: str):
-        self.file_path = file_path
-        self.data = self._load_yaml()
+    data = load_dictionary(path)
+    domains = data.get("domains", {})
 
-    def _load_yaml(self) -> Dict[str, Any]:
-        try:
-            with open(self.file_path, 'r', encoding='utf-8') as f:
-                return yaml.safe_load(f)
-        except Exception as e:
-            print(f"Error loading YAML dictionary: {e}")
-            return {}
+    if not domains:
+        return "도메인 사전이 비어있습니다."
 
-    def get_terms(self, department: str) -> Dict[str, Any]:
-        return self.data.get("departments", {}).get(department, {}).get("terms", {})
+    parts: list[str] = []
 
-    def get_context_string(self, department: str) -> str:
-        terms = self.get_terms(department)
-        if not terms:
-            return "용어 사전에 정의된 내용이 없습니다."
-        
-        lines = []
-        for term, info in terms.items():
-            desc = info.get("description", "")
-            clause = info.get("sql_condition", info.get("sql_calculation", ""))
-            lines.append(f"- {term}: {desc} (Query Fragment: {clause})")
-        
-        return "\n".join(lines)
+    for domain_name, domain_info in domains.items():
+        synonyms = domain_info.get("synonyms", {})
+        if not synonyms:
+            continue
+
+        lines = [f"[{domain_name} 도메인 용어]"]
+        for korean_term, sql_mapping in synonyms.items():
+            lines.append(f'  - "{korean_term}" → {sql_mapping}')
+
+        parts.append("\n".join(lines))
+
+    return "\n\n".join(parts)

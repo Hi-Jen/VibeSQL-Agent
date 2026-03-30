@@ -1,66 +1,104 @@
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+"""
+test_guardrails.py - 가드레일 모듈 단위 테스트
 
-from src.core.guardrails import SQLGuardrail
+안전한 쿼리 통과, 위험 쿼리 차단, LIMIT 자동 추가 등을 검증합니다.
+"""
+
 import pytest
+from src.core.guardrails import validate_sql
 
-def test_guardrail_dml_block():
-    guard = SQLGuardrail()
-    
-    # 1. DELETE 차단 테스트
-    with pytest.raises(PermissionError) as exc:
-        guard.validate_query("DELETE FROM users")
-    assert "허용되지 않은 명령어 감지: DELETE" in str(exc.value)
-    
-    # 2. DROP 차단 테스트
-    with pytest.raises(PermissionError):
-        guard.validate_query("DROP TABLE users")
 
-    # 3. UPDATE 차단 테스트
-    with pytest.raises(PermissionError):
-        guard.validate_query("UPDATE users SET name='hacker'")
+class TestSafeQueries:
+    """정상적인 SELECT 쿼리가 통과하는지 검증"""
 
-def test_guardrail_limit_injection():
-    guard = SQLGuardrail()
-    
-    # LIMIT가 없는 경우 자동 추가
-    sql = "SELECT * FROM users"
-    safe_sql = guard.validate_query(sql)
-    assert "LIMIT 1000" in safe_sql.upper()
-    
-    # 이미 LIMIT가 있는 경우 유지
-    sql_with_limit = "SELECT * FROM users LIMIT 5"
-    safe_sql_with_limit = guard.validate_query(sql_with_limit)
-    assert "LIMIT 5" in safe_sql_with_limit.upper()
-    assert "LIMIT 1000" not in safe_sql_with_limit.upper()
+    def test_simple_select(self):
+        sql = "SELECT * FROM employees"
+        result = validate_sql(sql)
+        assert "SELECT" in result
+        assert "LIMIT 1000" in result
 
-def test_guardrail_cartesian_product():
-    guard = SQLGuardrail()
-    
-    # 1. 콤마로 테이블을 나열하고 WHERE가 없는 경우 (위험)
-    with pytest.raises(ValueError) as exc:
-        guard.validate_query("SELECT * FROM users, orders")
-    assert "Cartesian Product" in str(exc.value)
-    
-    # 2. JOIN 키워드는 있지만 ON/WHERE가 명확하지 않은 경우 (sqlparse 토큰 분석에 따름)
-    # 현재 구현은 JOIN 키워드 자체가 있으면 통과시키되, 콤마 나열만 체크함.
-    
-    # 3. 정상적인 JOIN/WHERE는 통과해야 함
-    try:
-        guard.validate_query("SELECT * FROM users WHERE id = 1")
-    except ValueError:
-        pytest.fail("정상적인 WHERE 문이 Cartesian Product로 오진되었습니다.")
+    def test_select_with_where(self):
+        sql = "SELECT name, salary FROM employees WHERE salary > 5000"
+        result = validate_sql(sql)
+        assert "WHERE salary > 5000" in result
+        assert "LIMIT 1000" in result
 
-if __name__ == "__main__":
-    # pytest 없이도 실행 가능하도록 간단한 실행 로직
-    try:
-        test_guardrail_dml_block()
-        print("[SUCCESS] DML Block Test Passed")
-        test_guardrail_limit_injection()
-        print("[SUCCESS] LIMIT Injection Test Passed")
-        test_guardrail_cartesian_product()
-        print("[SUCCESS] Cartesian Product Test Passed")
-    except Exception as e:
-        print(f"[FAILURE] Test Failed: {e}")
-        sys.exit(1)
+    def test_select_with_join(self):
+        sql = (
+            "SELECT e.name, d.department_name "
+            "FROM employees e "
+            "JOIN departments d ON e.department_id = d.id"
+        )
+        result = validate_sql(sql)
+        assert "JOIN" in result
+        assert "LIMIT 1000" in result
+
+    def test_cte_query(self):
+        """WITH(CTE) 쿼리도 허용되어야 함"""
+        sql = (
+            "WITH dev_team AS ("
+            "  SELECT * FROM employees WHERE department_id = 1"
+            ") SELECT * FROM dev_team"
+        )
+        result = validate_sql(sql)
+        assert "WITH" in result
+
+    def test_existing_limit_preserved(self):
+        """이미 LIMIT이 있으면 중복 추가하지 않음"""
+        sql = "SELECT * FROM employees LIMIT 10"
+        result = validate_sql(sql)
+        assert "LIMIT 10" in result
+        assert "LIMIT 1000" not in result
+
+
+class TestDangerousQueries:
+    """위험한 DML/DDL 쿼리가 차단되는지 검증"""
+
+    def test_delete_blocked(self):
+        with pytest.raises(ValueError, match="위험 SQL 감지|허용되지 않는 구문"):
+            validate_sql("DELETE FROM employees WHERE id = 1")
+
+    def test_drop_blocked(self):
+        with pytest.raises(ValueError, match="위험 SQL 감지|허용되지 않는 구문"):
+            validate_sql("DROP TABLE employees")
+
+    def test_update_blocked(self):
+        with pytest.raises(ValueError, match="위험 SQL 감지|허용되지 않는 구문"):
+            validate_sql("UPDATE employees SET salary = 0")
+
+    def test_insert_blocked(self):
+        with pytest.raises(ValueError, match="위험 SQL 감지|허용되지 않는 구문"):
+            validate_sql("INSERT INTO employees (name) VALUES ('해커')")
+
+    def test_alter_blocked(self):
+        with pytest.raises(ValueError, match="위험 SQL 감지|허용되지 않는 구문"):
+            validate_sql("ALTER TABLE employees ADD COLUMN hack TEXT")
+
+    def test_truncate_blocked(self):
+        with pytest.raises(ValueError, match="위험 SQL 감지|허용되지 않는 구문"):
+            validate_sql("TRUNCATE TABLE employees")
+
+
+class TestEdgeCases:
+    """경계 조건 테스트"""
+
+    def test_empty_sql_raises(self):
+        with pytest.raises(ValueError, match="빈 SQL"):
+            validate_sql("")
+
+    def test_whitespace_only_raises(self):
+        with pytest.raises(ValueError, match="빈 SQL"):
+            validate_sql("   \n  ")
+
+    def test_markdown_fences_stripped(self):
+        """LLM이 마크다운으로 감싼 경우 정상 처리"""
+        sql = "```sql\nSELECT * FROM employees\n```"
+        result = validate_sql(sql)
+        assert "SELECT" in result
+        assert "```" not in result
+
+    def test_semicolon_removed(self):
+        """세미콜론이 제거되어야 함"""
+        sql = "SELECT * FROM employees;"
+        result = validate_sql(sql)
+        assert not result.rstrip().endswith(";")

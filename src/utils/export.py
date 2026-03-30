@@ -1,35 +1,41 @@
-import pandas as pd
-from typing import List, Dict, Any
-import os
+"""
+export.py - 쿼리 결과를 CSV로 내보내는 유틸리티 (Phase 2 구현 예정)
+"""
 
-class DataExporter:
-    """
-    쿼리 결과를 CSV 또는 Excel 파일로 변환하는 유틸리티.
-    """
-    @staticmethod
-    def to_csv(data: List[Dict[str, Any]], filename: str = "query_result.csv") -> str:
-        """
-        데이터 리스트를 CSV로 저장함 (utf-8-sig 인코딩으로 한글 깨짐 방지).
-        """
-        if not data:
-            return ""
-        
-        df = pd.DataFrame(data)
-        os.makedirs("exports", exist_ok=True)
-        path = os.path.join("exports", filename)
-        df.to_csv(path, index=False, encoding='utf-8-sig')
-        return path
+import csv
+import io
+from typing import Any
+from pathlib import Path
 
-    @staticmethod
-    def to_excel(data: List[Dict[str, Any]], filename: str = "query_result.xlsx") -> str:
-        """
-        데이터 리스트를 Excel로 저장함.
-        """
-        if not data:
-            return ""
-            
-        df = pd.DataFrame(data)
-        os.makedirs("exports", exist_ok=True)
-        path = os.path.join("exports", filename)
-        df.to_excel(path, index=False)
-        return path
+
+def export_to_csv(
+    data: list[dict[str, Any]],
+    filepath: str | Path | None = None,
+) -> str:
+    """
+    딕셔너리 리스트를 CSV 문자열로 반환하거나 파일로 저장합니다.
+
+    Args:
+        data: execute_query()의 반환값 (딕셔너리 리스트)
+        filepath: 저장할 파일 경로. None이면 문자열만 반환.
+
+    Returns:
+        CSV 형식 문자열
+    """
+    if not data:
+        return "결과 데이터가 없습니다."
+
+    headers = list(data[0].keys())
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=headers)
+    writer.writeheader()
+    writer.writerows(data)
+
+    csv_string = output.getvalue()
+
+    if filepath:
+        with open(filepath, "w", encoding="utf-8-sig", newline="") as f:
+            f.write(csv_string)
+
+    return csv_string

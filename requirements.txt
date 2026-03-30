@@ -1,12 +1,10 @@
-langchain>=0.1.0
-langchain-google-genai>=0.0.9
-sqlparse>=0.4.4
-pandas>=2.1.0
+# VibeSQL-Agent Phase 1 의존성
+langchain>=0.3.0
+langchain-google-genai>=2.0.0
+langchain-core>=0.3.0
 sqlalchemy>=2.0.0
-fastapi>=0.100.0
-uvicorn>=0.23.0
-httpx>=0.24.0
-pyyaml>=6.0.0
-openpyxl>=3.1.0
-pytest>=8.0.0
+sqlparse>=0.5.0
 python-dotenv>=1.0.0
+pyyaml>=6.0
+tabulate>=0.9.0
+pytest>=8.0.0
