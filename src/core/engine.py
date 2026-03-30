@@ -11,10 +11,10 @@ from typing import Any
 
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from src.core.guardrails import validate_sql
-from src.core.dictionary import get_dictionary_context
+from src.core.dictionary import get_dictionary_context, load_dictionary
 from src.db.connection import DatabaseManager
 
 # 환경 변수 로드
@@ -87,12 +87,52 @@ class VibeQLEngine:
             temperature=0,  # SQL 생성에는 결정적 출력이 적합
         )
 
-        # 프롬프트 구성 요소 로드
-        self._schema_info = self.db.get_schema_info()
+        # 공통 사전 컨텍스트만 로드 (스키마는 호출 시 동적으로 구성)
         self._dict_context = get_dictionary_context()
-        self._system_prompt = _build_system_prompt(
-            self._schema_info, self._dict_context
-        )
+
+    def _extract_relevant_tables(self, natural_language: str) -> list[str]:
+        """
+        사용자의 질문과 도메인 사전을 분석하여 연관된 테이블 목록을 추출합니다.
+        
+        Args:
+            natural_language: 사용자 질문
+            
+        Returns:
+            연관된 테이블 이름 리스트
+        """
+        try:
+            dict_data = load_dictionary()
+            domains = dict_data.get("domains", {})
+            
+            relevant_tables = set()
+            
+            # 모든 도메인의 유의어를 순회하며 질문에 포함된 키워드 탐색
+            for _, info in domains.items():
+                synonyms = info.get("synonyms", {})
+                for keyword, mapping in synonyms.items():
+                    if keyword in natural_language:
+                        # 매핑값이 테이블명인 경우(예: employees)와 
+                        # 컬럼명인 경우를 모두 고려하여 테이블 유추
+                        # 여기서는 단순하게 매핑 문자열에 포함된 테이블명을 찾거나 전체를 추가
+                        if mapping == "*":
+                            continue
+                        
+                        # 예: employees, departments 같은 테이블명을 직접 매핑한 경우
+                        if mapping.isidentifier():
+                            relevant_tables.add(mapping)
+                        # 예: department_name (컬럼명) -> 
+                        # 실제 운영 환경에선 더 정교한 매핑 필요. 
+                        # 현재 데모에선 테이블 키워드가 직접 매핑되어 있음.
+            
+            # 만약 추출된 테이블이 없다면 기본적으로 전체 테이블 제공(안전 장치)
+            if not relevant_tables:
+                return []
+                
+            return list(relevant_tables)
+            
+        except Exception as e:
+            logger.warning(f"테이블 추출 중 오류 발생(전체 스키마 사용): {e}")
+            return []
 
     def generate_sql(self, natural_language: str) -> str:
         """
@@ -104,8 +144,15 @@ class VibeQLEngine:
         Returns:
             가드레일을 통과한 안전한 SQL 문자열
         """
+        # 1. 동적 스키마 추출 (추출 실패 시 None을 넘겨 전체 스키마 사용)
+        relevant_tables = self._extract_relevant_tables(natural_language)
+        schema_info = self.db.get_schema_info(table_names=relevant_tables or None)
+        
+        # 2. 실시간 시스템 프롬프트 생성
+        system_prompt = _build_system_prompt(schema_info, self._dict_context)
+        
         messages = [
-            SystemMessage(content=self._system_prompt),
+            SystemMessage(content=system_prompt),
             HumanMessage(content=natural_language),
         ]
 
@@ -116,30 +163,16 @@ class VibeQLEngine:
         safe_sql = validate_sql(raw_sql)
         return safe_sql
 
-    def generate_and_execute(
-        self, natural_language: str
-    ) -> dict[str, Any]:
-        """
-        자연어 → SQL 변환 → 실행 → Self-Correction 루프.
-
-        에러 발생 시 LLM에게 에러 메시지를 피드백하여
-        최대 MAX_RETRY회까지 쿼리를 자동 수정합니다.
-
-        Args:
-            natural_language: 사용자의 한국어 질문
-
-        Returns:
-            {
-                "question": 원본 질문,
-                "sql": 최종 실행된 SQL,
-                "result": 쿼리 결과 리스트,
-                "retries": 재시도 횟수,
-                "success": 성공 여부,
-                "error": 에러 메시지 (실패 시)
-            }
-        """
+    def generate_and_execute(self, natural_language: str) -> dict[str, Any]:
+        """자연어 → SQL 변환 → 실행 → Self-Correction 루프."""
+        # 1. 동적 스키마 추출 및 프롬프트 생성 (추출 실패 시 None을 넘겨 전체 스키마 사용)
+        relevant_tables = self._extract_relevant_tables(natural_language)
+        schema_info = self.db.get_schema_info(table_names=relevant_tables or None)
+        system_prompt = _build_system_prompt(schema_info, self._dict_context)
+        
+        # [중요] 대화 시작 메시지 구성
         messages = [
-            SystemMessage(content=self._system_prompt),
+            SystemMessage(content=system_prompt),
             HumanMessage(content=natural_language),
         ]
 
@@ -170,11 +203,11 @@ class VibeQLEngine:
                 }
 
             except ValueError as e:
-                # 가드레일 위반 → 재시도하지 않고 즉시 중단
+                # 가드레일 위반 (보안상 재시도 불가)
                 logger.warning(f"가드레일 위반: {e}")
                 return {
                     "question": natural_language,
-                    "sql": raw_sql if 'raw_sql' in dir() else None,
+                    "sql": raw_sql if "raw_sql" in locals() else None,
                     "result": [],
                     "retries": attempt,
                     "success": False,
@@ -184,12 +217,13 @@ class VibeQLEngine:
             except Exception as e:
                 # SQL 실행 에러 → Self-Correction 피드백
                 last_error = str(e)
-                logger.warning(
-                    f"[시도 {attempt + 1}] SQL 실행 실패: {last_error}"
-                )
+                logger.warning(f"[시도 {attempt + 1}] SQL 실행 실패: {last_error}")
 
                 if attempt < MAX_RETRY:
-                    # 에러 메시지를 대화에 추가하여 LLM이 수정하도록 유도
+                    # [수정] raw_sql이 존재할 때만 AIMessage 추가 (UnboundLocalError 방지)
+                    if "raw_sql" in locals():
+                        messages.append(AIMessage(content=raw_sql))
+                    
                     correction_prompt = (
                         f"위 SQL을 실행했더니 다음 에러가 발생했다:\n"
                         f"에러: {last_error}\n\n"
@@ -197,13 +231,13 @@ class VibeQLEngine:
                         f"설명 없이 SQL만 출력하라."
                     )
                     messages.append(HumanMessage(content=correction_prompt))
-
-        # 모든 재시도 실패
+        
+        # 모든 재시도 실패 시
         return {
             "question": natural_language,
-            "sql": final_sql,
+            "sql": final_sql if "final_sql" in locals() and final_sql else None,
             "result": [],
-            "retries": MAX_RETRY,
+            "retries": attempt if "attempt" in locals() else 0,
             "success": False,
-            "error": f"최대 재시도({MAX_RETRY}회) 초과. 마지막 에러: {last_error}",
+            "error": f"최대 재시도 초과 또는 치명적 에러. 마지막 에러: {last_error}",
         }

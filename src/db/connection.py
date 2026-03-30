@@ -90,28 +90,35 @@ class DatabaseManager:
                  "hire_date": date(2023, 6, 15), "department_id": 2},
             ])
 
-    def get_schema_info(self) -> str:
+    def get_schema_info(self, table_names: list[str] | None = None) -> str:
         """
-        DB의 모든 테이블 이름, 컬럼명, 데이터 타입을 LLM 프롬프트에
+        DB의 테이블 이름, 컬럼명, 데이터 타입을 LLM 프롬프트에
         주입할 수 있는 문자열 형태로 반환합니다.
 
+        Args:
+            table_names: 정보를 추출할 테이블 이름 리스트. 
+                        None이면 모든 테이블 정보를 반환합니다.
+
         Returns:
-            스키마 정보 문자열 (예:
-              Table: employees
-                - id (INTEGER, PK)
-                - name (VARCHAR(100), NOT NULL)
-                ...
-            )
+            스키마 정보 문자열
         """
         inspector = inspect(self.engine)
-        table_names = inspector.get_table_names()
+        all_tables = inspector.get_table_names()
+        
+        # 특정 테이블만 필터링하거나 전체 테이블 사용
+        target_tables = []
+        if table_names:
+            # 실제 DB에 존재하는 테이블만 필터링
+            target_tables = [t for t in table_names if t in all_tables]
+        else:
+            target_tables = all_tables
 
-        if not table_names:
-            return "데이터베이스에 테이블이 없습니다."
+        if not target_tables:
+            return "데이터베이스에 요청한 테이블이 없거나 테이블이 비어있습니다."
 
         schema_parts: list[str] = []
 
-        for table_name in table_names:
+        for table_name in target_tables:
             columns = inspector.get_columns(table_name)
             pk_columns = inspector.get_pk_constraint(table_name)
             pk_names = set(pk_columns.get("constrained_columns", []))
