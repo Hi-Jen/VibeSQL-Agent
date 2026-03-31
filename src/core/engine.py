@@ -46,6 +46,19 @@ def _build_system_prompt(schema_info: str, dictionary_context: str) -> str:
 
 ## 도메인 용어 사전
 {dictionary_context}
+
+## 예시 (Few-shot)
+질문: 직원들의 이름과 이메일, 그리고 소속 부서명을 알려줘
+SQL: SELECT e.name, e.email, d.department_name FROM employees e JOIN departments d ON e.department_id = d.id
+
+질문: 마케팅 부서에 근무하는 직원 수는 몇 명이야?
+SQL: SELECT COUNT(*) FROM employees e JOIN departments d ON e.department_id = d.id WHERE d.department_name = '마케팅'
+
+질문: 부서별로 평균 연봉이 어떻게 돼? 높은 순서대로 보여줘.
+SQL: SELECT d.department_name, AVG(e.salary) as avg_salary FROM employees e JOIN departments d ON e.department_id = d.id GROUP BY d.department_name ORDER BY avg_salary DESC
+
+질문: 가장 최근에 입사한 직원 5명만 뽑아줘
+SQL: SELECT * FROM employees ORDER BY hire_date DESC LIMIT 5
 """
 
 
@@ -75,10 +88,10 @@ class VibeQLEngine:
         resolved_model = model_name or os.getenv("MODEL_NAME", "gemini-1.5-flash")
         api_key = os.getenv("GOOGLE_API_KEY")
 
-        if not api_key:
+        if not api_key or "Your_Google_API_Key" in api_key:
             raise ValueError(
-                "GOOGLE_API_KEY가 설정되지 않았습니다. "
-                ".env 파일 또는 환경 변수를 확인하세요."
+                "❌ .env 파일에 유효한 GOOGLE_API_KEY가 설정되지 않았습니다. "
+                "실제 API 키를 입력한 후 다시 시도해 주세요."
             )
 
         self.llm = ChatGoogleGenerativeAI(
