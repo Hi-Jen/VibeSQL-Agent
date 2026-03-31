@@ -1,4 +1,4 @@
-# Environments
+﻿# Environments
 .env*
 .venv
 env/
@@ -10,7 +10,7 @@ venv.bak/
 # Python caching and compiled files
 __pycache__/
 *.py[cod]
-*$py.class
+*.class
 *.so
 .Python
 build/
